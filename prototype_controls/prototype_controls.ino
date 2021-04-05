@@ -6,13 +6,17 @@
 // moving average objects
 movingAvg smoothInput1(5); 
 movingAvg smoothInput2(5);
-movingAvg smoothInput3(5);
+movingAvg smoothInput3(15);
 movingAvg smoothInput4(5);
 movingAvg smoothInput5(5);
 movingAvg smoothInput6(5);
 
 // servo objects
-Servo ESC;
+Servo rearESC;
+Servo mainESC1;
+Servo mainESC2;
+Servo tiltServo1;
+Servo tiltServo2;
 
 // raw control input variables
 float aileronRaw; // channel 1
@@ -50,12 +54,12 @@ void loop() {
   readRawControlInputs();
   setupMotorControllers();
 
-  ESC.write(throttleInput+1500); // test esc output
+  rearESC.write(throttleInput+1500); // test esc output pin 9
   
-  ESCTest = pulseIn(8, HIGH); // reading test esc output
-  Serial.print(ESCTest);
+  // ESCTest = pulseIn(8, HIGH); // reading test esc output
+  Serial.print(throttleInput+1500);
   Serial.println();
-  delay(100);
+  delay(10);
 }
 
 
@@ -101,5 +105,5 @@ void readRawControlInputs() {
 }
 
 void setupMotorControllers() {
-  ESC.attach(9, 1000, 2000); // set to pin 9
+  rearESC.attach(9, 1000, 2000); // set to pin 9
 }
