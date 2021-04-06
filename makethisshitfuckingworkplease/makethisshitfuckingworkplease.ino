@@ -56,15 +56,6 @@ unsigned long channel_6_fs = 2000; //aux1
 float B_madgwick = 0.04;  //Madgwick filter parameter
 float B_accel = 0.14;     //Accelerometer LP filter paramter, (MPU6050 default: 0.14. MPU9250 default: 0.2)
 float B_gyro = 0.1;       //Gyro LP filter paramter, (MPU6050 default: 0.1. MPU9250 default: 0.17)
-float B_mag = 1.0;        //Magnetometer LP filter parameter
-
-//Magnetometer calibration parameters - if using MPU9250, uncomment calibrateMagnetometer() in void setup() to get these values, else just ignore these
-float MagErrorX = 0.0;
-float MagErrorY = 0.0; 
-float MagErrorZ = 0.0;
-float MagScaleX = 1.0;
-float MagScaleY = 1.0;
-float MagScaleZ = 1.0;
 
 //Attitude Envelope in Hover 
 float i_limit = 25.0;     //Integrator saturation level, mostly for safety (default 25.0)
@@ -200,6 +191,9 @@ void setup() {
   Serial.begin(500000); //usb serial
   delay(3000); //3 second delay for plugging in battery before IMU calibration begins, feel free to comment this out to reduce boot time
   
+  // --------------------------------------------------- EXTREMELY SUSPECT ------------------------------------------------------------
+
+  // ---------------------- INNOCENT ----------------------
   //Initialize all pins
   pinMode(13, OUTPUT); //pin 13 LED blinker on board, do not modify 
   pinMode(m1Pin, OUTPUT);
@@ -223,20 +217,69 @@ void setup() {
   channel_6_pwm = channel_6_fs;
 
   //Initialize IMU communication
-  IMUinit();
+  IMUinit(); // SUS
 
   delay(10);
 
   //Get IMU error to zero accelerometer and gyro readings, assuming vehicle is level
   calculate_IMU_error();
+
+  // Lieutenant Columbo fucking fucked another fucker
+  /*
+  //Lieutenant Columbo
+  Serial.print(F("FUCKING SUS 5"));
+  Serial.print(F("q0: "));
+  Serial.print(q0);
+  Serial.print(F(" q1: "));
+  Serial.print(q1);
+  Serial.print(F(" q2: "));
+  Serial.print(q2);
+  Serial.print(F(" q3: "));
+  Serial.println(q3);
+  */
   
   delay(100);
 
+  // ---------------------- INNOCENT ----------------------
+
+  //Lieutenant Columbo
+  /*
+  Serial.println(F("REDUNDANCY"));
+  Serial.print(F("q0: "));
+  Serial.print(q0);
+  Serial.print(F(" q1: "));
+  Serial.print(q1);
+  Serial.print(F(" q2: "));
+  Serial.print(q2);
+  Serial.print(F(" q3: "));
+  Serial.println(q3);
+  */
+  
   //Warm up the loop
   calibrateAttitude(); //helps to warm up IMU and Madgwick filter before finally entering main loop
+
+  //Lieutenant Columbo
+  Serial.println(F("FUCKING SUS 6"));
+  Serial.print(F("q0: "));
+  Serial.print(q0);
+  Serial.print(F(" q1: "));
+  Serial.print(q1);
+  Serial.print(F(" q2: "));
+  Serial.print(q2);
+  Serial.print(F(" q3: "));
+  Serial.println(q3);
   
   //Indicate entering main loop with 3 quick blinks
   setupBlink(3,160,70); //numBlinks, upTime (ms), downTime (ms)
+  // --------------------------------------------------- EXTREMELY SUSPECT ------------------------------------------------------------
+  
+  /*
+  if (isnan(q0)) {
+    Serial.println("its fucking nan");
+    q0 = 69.0f;
+  }
+  Serial.println(q0);
+  */
 }
 
 
@@ -250,7 +293,7 @@ void loop() {
   dt = (current_time - prev_time)/1000000.0;
 
   loopBlink(); //indicate we are in main loop with short blink every 1.5 seconds
-
+  
   //Print data at 100hz (uncomment one at a time for troubleshooting) - SELECT ONE:
   //printRadioData();     //radio pwm values (expected: 1000 to 2000)
   //printDesiredState();  //prints desired vehicle state commanded in either degrees or deg/sec (expected: +/- maxAXIS for roll, pitch, yaw; 0 to 1 for throttle)
@@ -263,8 +306,9 @@ void loop() {
   //printServoCommands(); //prints the values being written to the servos (expected: 0 to 180)
   //printLoopRate();      //prints the time between loops in microseconds (expected: microseconds between loop iterations)
 
+  
   //Get vehicle state
-  getIMUdata(); //pulls raw gyro, accelerometer, and magnetometer data from IMU and LP filters to remove noise
+  getIMUdata(); //pulls raw gyro and accelerometer data from IMU and LP filters to remove noise
 
   //Debugging some shit
   /*
@@ -285,6 +329,8 @@ void loop() {
   */
 
   //Checking the quarternion values
+  //Why the fuck are these nans
+  /*
   Serial.print(F("q0: "));
   Serial.print(q0);
   Serial.print(F(" q1: "));
@@ -293,6 +339,7 @@ void loop() {
   Serial.print(q2);
   Serial.print(F(" q3: "));
   Serial.println(q3);
+  */
   
   //Uncomment if we have a magnetometer, but we dont so fuck that shit
   Madgwick6DOF(GyroX, -GyroY, -GyroZ, -AccX, AccY, AccZ, dt); //updates roll_IMU, pitch_IMU, and yaw_IMU (degrees)
@@ -460,9 +507,12 @@ void calibrateAttitude() {
   for (int i = 0; i <= 10000; i++) {
     prev_time = current_time;      
     current_time = micros();      
-    dt = (current_time - prev_time)/1000000.0; 
-    getIMUdata();
-    Madgwick6DOF(GyroX, -GyroY, -GyroZ, -AccX, AccY, AccZ, dt);
+    dt = (current_time - prev_time)/1000000.0f; // f
+    
+    getIMUdata(); // INNOCENT
+
+    Madgwick6DOF(GyroX, -GyroY, -GyroZ, -AccX, AccY, AccZ, dt); // GUILTY UNTIL PROVEN INNOCENT
+    
     loopRate(2000); //do not exceed 2000Hz
   }
 }
@@ -476,6 +526,13 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az, fl
    * beta leads to slower to respond estimate. It is currently tuned for 2kHz loop rate. This function updates the roll_IMU,
    * pitch_IMU, and yaw_IMU variables which are in degrees.
    */
+
+  Serial.print(F(" ax: "));
+  Serial.print(ax);
+  Serial.print(F(" ay: "));
+  Serial.print(ay);
+  Serial.print(F(" az: "));
+  Serial.println(az);
    
   float recipNorm;
   float s0, s1, s2, s3;
@@ -493,13 +550,33 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az, fl
   qDot3 = 0.5f * (q0 * gy - q1 * gz + q3 * gx);
   qDot4 = 0.5f * (q0 * gz + q1 * gy - q2 * gx);
 
+  int c = 0;
+  
   //Compute feedback only if accelerometer measurement valid (avoids NaN in accelerometer normalisation)
   if(!((ax == 0.0f) && (ay == 0.0f) && (az == 0.0f))) {
     //Normalise accelerometer measurement
     recipNorm = invSqrt(ax * ax + ay * ay + az * az);
+
+    // Cole ended up being fucking poggers <3
+    /* 
+    Serial.print(" Cole is poggers: ");
+    Serial.println(recipNorm);
+    */
+    
     ax *= recipNorm;
     ay *= recipNorm;
     az *= recipNorm;
+
+    /*
+    Serial.print(F("recipNorm: "));
+    Serial.print(recipNorm);
+    Serial.print(F(" ax: "));
+    Serial.print(ax);
+    Serial.print(F(" ay: "));
+    Serial.print(ay);
+    Serial.print(F(" az: "));
+    Serial.print(az);
+    */
 
     //Auxiliary variables to avoid repeated arithmetic
     _2q0 = 2.0f * q0;
@@ -532,8 +609,80 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az, fl
     qDot2 -= B_madgwick * s1;
     qDot3 -= B_madgwick * s2;
     qDot4 -= B_madgwick * s3;
+
+    /*
+    if (c==0) {
+      // Debug some shit
+      Serial.print(F("recipNorm: "));
+      Serial.print(recipNorm);
+      Serial.print(F(" s0: "));
+      Serial.print(s0);
+      Serial.print(F(" s1: "));
+      Serial.print(s1);
+      Serial.print(F(" s2: "));
+      Serial.print(s2);
+      Serial.print(F(" s3: "));
+      Serial.print(s3);
+      Serial.print(F(" qDot1: "));
+      Serial.print(qDot1);
+      Serial.print(F(" qDot2: "));
+      Serial.print(qDot2);
+      Serial.print(F(" qDot3: "));
+      Serial.print(qDot3);
+      Serial.print(F(" qDot4: "));
+      Serial.print(qDot4);
+      Serial.print(F(" _2q0: "));
+      Serial.print( _2q0);
+      Serial.print(F(" _2q1: "));
+      Serial.print(_2q1);
+      Serial.print(F(" _2q2: "));
+      Serial.print(_2q2);
+      Serial.print(F(" _2q3: "));
+      Serial.print(_2q3);
+      Serial.print(F(" _2q3: "));
+      Serial.print(_2q3);
+      Serial.print(F(" _4q0: "));
+      Serial.print(_4q0);
+      Serial.print(F(" _4q1: "));
+      Serial.print(_4q1);
+      Serial.print(F(" _4q2: "));
+      Serial.print(_4q2);
+      Serial.print(F(" _8q1: "));
+      Serial.print(_8q1);
+      Serial.print(F(" _8q2: "));
+      Serial.print(_8q2);
+      Serial.print(F(" q0q0: "));
+      Serial.print(q0q0);
+      Serial.print(F(" q1q1: "));
+      Serial.print(q1q1);
+      Serial.print(F(" q2q2: "));
+      Serial.print(q2q2);
+      Serial.print(F(" q3q3: "));
+      Serial.print(q3q3);
+      Serial.print(F(" gx: "));
+      Serial.print(gx);
+      Serial.print(F(" gy: "));
+      Serial.print(gy);
+      Serial.print(F(" gz: "));
+      Serial.println(gz);
+    }
+    */
+    c+=1; 
+    
   }
 
+  //Debug qdots lmao
+  /*
+  Serial.print(F(" qDot1: "));
+  Serial.print(qDot1);
+  Serial.print(F(" qDot2: "));
+  Serial.print(qDot2);
+  Serial.print(F(" qDot3: "));
+  Serial.print(qDot3);
+  Serial.print(F(" qDot4: "));
+  Serial.println(qDot4);
+  */
+  
   //Integrate rate of change of quaternion to yield quaternion
   //uh what the fuck did you just say?
   q0 += qDot1 * invSampleFreq;
@@ -541,12 +690,15 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az, fl
   q2 += qDot3 * invSampleFreq;
   q3 += qDot4 * invSampleFreq;
 
+  //columbo("Post integration");
+
   //Normalise quaternion
   recipNorm = invSqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
   q0 *= recipNorm;
   q1 *= recipNorm;
   q2 *= recipNorm;
   q3 *= recipNorm;
+
 
 
   // Debug some shit
@@ -1111,53 +1263,6 @@ void throttleCut() {
   }
 }
 
-void calibrateMagnetometer() {
-  #if defined USE_MPU9250_SPI 
-    float success;
-    Serial.println("Beginning magnetometer calibration in");
-    Serial.println("3...");
-    delay(1000);
-    Serial.println("2...");
-    delay(1000);
-    Serial.println("1...");
-    delay(1000);
-    Serial.println("Rotate the IMU about all axes until complete.");
-    Serial.println(" ");
-    success = mpu9250.calibrateMag();
-    if(success) {
-      Serial.println("Calibration Successful!");
-      Serial.println("Please comment out the calibrateMagnetometer() function and copy these values into the code:");
-      Serial.print("float MagErrorX = ");
-      Serial.print(mpu9250.getMagBiasX_uT());
-      Serial.println(";");
-      Serial.print("float MagErrorY = ");
-      Serial.print(mpu9250.getMagBiasY_uT());
-      Serial.println(";");
-      Serial.print("float MagErrorZ = ");
-      Serial.print(mpu9250.getMagBiasZ_uT());
-      Serial.println(";");
-      Serial.print("float MagScaleX = ");
-      Serial.print(mpu9250.getMagScaleFactorX());
-      Serial.println(";");
-      Serial.print("float MagScaleY = ");
-      Serial.print(mpu9250.getMagScaleFactorY());
-      Serial.println(";");
-      Serial.print("float MagScaleZ = ");
-      Serial.print(mpu9250.getMagScaleFactorZ());
-      Serial.println(";");
-      Serial.println(" ");
-      Serial.println("If you are having trouble with your attitude estimate at a new flying location, repeat this process as needed.");
-    }
-    else {
-      Serial.println("Calibration Unsuccessful. Please reset the board and try again.");
-    }
-  
-    while(1); //halt code so it won't enter main loop until this function commented out
-  #endif
-  Serial.println("Error: MPU9250 not selected. Cannot calibrate non-existent magnetometer.");
-  while(1); //halt code so it won't enter main loop until this function commented out
-}
-
 void loopRate(int freq) {
   //DESCRIPTION: Regulate main loop rate to specified frequency in Hz
   /*
@@ -1332,13 +1437,25 @@ void printLoopRate() {
   }
 }
 
+void columbo(char message) {
+  //Lieutenant Columbo
+  Serial.println(message);
+  Serial.print(F("q0: "));
+  Serial.print(q0);
+  Serial.print(F(" q1: "));
+  Serial.print(q1);
+  Serial.print(F(" q2: "));
+  Serial.print(q2);
+  Serial.print(F(" q3: "));
+  Serial.println(q3);
+}
+
 //=========================================================================================//
 
 //HELPER FUNCTIONS
 
 float invSqrt(float x) {
   //Fast inverse sqrt for madgwick filter
-  /*
   float halfx = 0.5f * x;
   float y = x;
   long i = *(long*)&y;
@@ -1347,10 +1464,13 @@ float invSqrt(float x) {
   y = y * (1.5f - (halfx * y * y));
   y = y * (1.5f - (halfx * y * y));
   return y;
-  */
+
+  // Beyond here be monsters
+  /*
   //alternate form:
-  unsigned int i = 0x5F1F1412 - (*(unsigned int*)&x >> 1);
+  unsigned int i = 0x5F1F1412 - (*(unsigned int*)&x >> 1); // what the fuck
   float tmp = *(float*)&i;
   float y = tmp * (1.69000231f - 0.714158168f * x * tmp * tmp);
   return y;
+  */
 }
