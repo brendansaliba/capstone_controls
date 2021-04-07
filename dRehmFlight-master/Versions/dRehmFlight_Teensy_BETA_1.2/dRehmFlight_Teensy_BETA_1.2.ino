@@ -409,7 +409,7 @@ void loop() {
   //printGyroData();      //prints filtered gyro data direct from IMU (expected: ~ -250 to 250, 0 at rest)
   //printAccelData();     //prints filtered accelerometer data direct from IMU (expected: ~ -2 to 2; x,y 0 when level, z 1 when level)
   //printMagData();       //prints filtered magnetometer data direct from IMU (expected: ~ -300 to 300)
-  //printRollPitchYaw();  //prints roll, pitch, and yaw angles in degrees from Madgwick filter (expected: degrees, 0 when level)
+  printRollPitchYaw();  //prints roll, pitch, and yaw angles in degrees from Madgwick filter (expected: degrees, 0 when level)
   //printPIDoutput();     //prints computed stabilized PID variables from controller and desired setpoint (expected: ~ -1 to 1)
   //printMotorCommands(); //prints the values being written to the motors (expected: 120 to 250)
   //printServoCommands(); //prints the values being written to the servos (expected: 0 to 180)
@@ -418,28 +418,6 @@ void loop() {
   //Get vehicle state
   getIMUdata(); //pulls raw gyro, accelerometer, and magnetometer data from IMU and LP filters to remove noise
 
-  Serial.print(F("GyroX: "));
-  Serial.print(GyroX);
-  Serial.print(F(" GyroY: "));
-  Serial.print(GyroY);
-  Serial.print(F(" GyroZ: "));
-  Serial.print(GyroZ);
-  Serial.print(F(" AccX: "));
-  Serial.print(AccX);
-  Serial.print(F(" AccY: "));
-  Serial.print(AccY);
-  Serial.print(F(" AccZ: "));
-  Serial.print(AccZ);
-  Serial.print(F(" MagX: "));
-  Serial.print(MagX);
-  Serial.print(F(" MagY: "));
-  Serial.print(MagY);
-  Serial.print(F(" MagZ: "));
-  Serial.print(MagZ);
-  Serial.print(F(" dt: "));
-  Serial.println(dt);
-
-  
   Madgwick(GyroX, -GyroY, -GyroZ, -AccX, AccY, AccZ, MagY, -MagX, MagZ, dt); //updates roll_IMU, pitch_IMU, and yaw_IMU (degrees)
 
   //Compute desired state
@@ -670,22 +648,6 @@ void Madgwick(float gx, float gy, float gz, float ax, float ay, float az, float 
   float hx, hy;
   float _2q0mx, _2q0my, _2q0mz, _2q1mx, _2bx, _2bz, _4bx, _4bz, _2q0, _2q1, _2q2, _2q3, _2q0q2, _2q2q3, q0q0, q0q1, q0q2, q0q3, q1q1, q1q2, q1q3, q2q2, q2q3, q3q3;
   float mholder;
-
-  // Debug shit
-  Serial.print(F("gx: "));
-  Serial.print(gx);
-  Serial.print(F(" gy: "));
-  Serial.print(gy);
-  Serial.print(F(" gz: "));
-  Serial.print(gz);
-  Serial.print(F(" ax: "));
-  Serial.print(ax);
-  Serial.print(F(" ay: "));
-  Serial.print(ay);
-  Serial.print(F(" az: "));
-  Serial.print(az);
-  Serial.print(F(" invSampleFreq: "));
-  Serial.println(invSampleFreq);
   
   //use 6DOF algorithm if MPU6050 is being used
   #if defined USE_MPU6050_I2C 
@@ -867,61 +829,6 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az, fl
   q1 *= recipNorm;
   q2 *= recipNorm;
   q3 *= recipNorm;
-
-
-  // Debug some shit
-  Serial.print(F("recipNorm: "));
-  Serial.print(recipNorm);
-  Serial.print(F(" s0: "));
-  Serial.print(s0);
-  Serial.print(F(" s1: "));
-  Serial.print(s1);
-  Serial.print(F(" s2: "));
-  Serial.print(s2);
-  Serial.print(F(" s3: "));
-  Serial.print(s3);
-  Serial.print(F(" qDot1: "));
-  Serial.print(qDot1);
-  Serial.print(F(" qDot2: "));
-  Serial.print(qDot2);
-  Serial.print(F(" qDot3: "));
-  Serial.print(qDot3);
-  Serial.print(F(" qDot4: "));
-  Serial.print(qDot4);
-  Serial.print(F(" _2q0: "));
-  Serial.print( _2q0);
-  Serial.print(F(" _2q1: "));
-  Serial.print(_2q1);
-  Serial.print(F(" _2q2: "));
-  Serial.print(_2q2);
-  Serial.print(F(" _2q3: "));
-  Serial.print(_2q3);
-  Serial.print(F(" _2q3: "));
-  Serial.print(_2q3);
-  Serial.print(F(" _4q0: "));
-  Serial.print(_4q0);
-  Serial.print(F(" _4q1: "));
-  Serial.print(_4q1);
-  Serial.print(F(" _4q2: "));
-  Serial.print(_4q2);
-  Serial.print(F(" _8q1: "));
-  Serial.print(_8q1);
-  Serial.print(F(" _8q2: "));
-  Serial.print(_8q2);
-  Serial.print(F(" q0q0: "));
-  Serial.print(q0q0);
-  Serial.print(F(" q1q1: "));
-  Serial.print(q1q1);
-  Serial.print(F(" q2q2: "));
-  Serial.print(q2q2);
-  Serial.print(F(" q3q3: "));
-  Serial.print(q3q3);
-  Serial.print(F(" gx: "));
-  Serial.print(gx);
-  Serial.print(F(" gy: "));
-  Serial.print(gy);
-  Serial.print(F(" gz: "));
-  Serial.println(gz);
 
   //compute angles
   roll_IMU = atan2(q0*q1 + q2*q3, 0.5f - q1*q1 - q2*q2)*57.29577951; //degrees
@@ -1669,7 +1576,7 @@ void printLoopRate() {
 
 float invSqrt(float x) {
   //Fast inverse sqrt for madgwick filter
-  /*
+  
   float halfx = 0.5f * x;
   float y = x;
   long i = *(long*)&y;
@@ -1678,10 +1585,12 @@ float invSqrt(float x) {
   y = y * (1.5f - (halfx * y * y));
   y = y * (1.5f - (halfx * y * y));
   return y;
-  */
+
+  /*
   //alternate form:
   unsigned int i = 0x5F1F1412 - (*(unsigned int*)&x >> 1);
   float tmp = *(float*)&i;
   float y = tmp * (1.69000231f - 0.714158168f * x * tmp * tmp);
   return y;
+  */
 }

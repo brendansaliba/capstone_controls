@@ -11,15 +11,8 @@
 #include <SPI.h>      //SPI communication
 #include <PWMServo.h> //commanding any extra actuators(servos, etc)
 
-#if defined USE_MPU6050_I2C
-  #include "src/MPU6050/MPU6050.h"
-  MPU6050 mpu6050;
-#elif defined USE_MPU9250_SPI
-  #include "src/MPU9250/MPU9250.h"
-  MPU9250 mpu9250(SPI2,36);
-#else
-  #error No MPU defined... 
-#endif
+#include "src/MPU6050/MPU6050.h"
+MPU6050 mpu6050;
 
 //========================================================================================================================//
 
@@ -51,6 +44,14 @@ unsigned long channel_3_fs = 1500; //elevator
 unsigned long channel_4_fs = 1500; //rudder
 unsigned long channel_5_fs = 2000; //gear, greater than 1500 = throttle cut
 unsigned long channel_6_fs = 2000; //aux1
+
+//Raw inputs from the RX
+float aileronRaw; // channel 1
+float elevatorRaw; // channel 2
+float throttleRaw; // channel 3
+float rudderRaw; // channel 4
+float tiltRaw; // channel 5 (SG Switch 3pos)
+float tiltRaw2; // channel 6 (same as channel 5?????)
 
 //Filter parameters - Defaults tuned for 2kHz loop rate; Do not touch unless you know what you are doing:
 float B_madgwick = 0.04;  //Madgwick filter parameter
@@ -190,10 +191,7 @@ int s1_command_PWM, s2_command_PWM, s3_command_PWM, s4_command_PWM, s5_command_P
 void setup() {
   Serial.begin(500000); //usb serial
   delay(3000); //3 second delay for plugging in battery before IMU calibration begins, feel free to comment this out to reduce boot time
-  
-  // --------------------------------------------------- EXTREMELY SUSPECT ------------------------------------------------------------
 
-  // ---------------------- INNOCENT ----------------------
   //Initialize all pins
   pinMode(13, OUTPUT); //pin 13 LED blinker on board, do not modify 
   pinMode(m1Pin, OUTPUT);
@@ -223,63 +221,15 @@ void setup() {
 
   //Get IMU error to zero accelerometer and gyro readings, assuming vehicle is level
   calculate_IMU_error();
-
-  // Lieutenant Columbo fucking fucked another fucker
-  /*
-  //Lieutenant Columbo
-  Serial.print(F("FUCKING SUS 5"));
-  Serial.print(F("q0: "));
-  Serial.print(q0);
-  Serial.print(F(" q1: "));
-  Serial.print(q1);
-  Serial.print(F(" q2: "));
-  Serial.print(q2);
-  Serial.print(F(" q3: "));
-  Serial.println(q3);
-  */
   
   delay(100);
-
-  // ---------------------- INNOCENT ----------------------
-
-  //Lieutenant Columbo
-  /*
-  Serial.println(F("REDUNDANCY"));
-  Serial.print(F("q0: "));
-  Serial.print(q0);
-  Serial.print(F(" q1: "));
-  Serial.print(q1);
-  Serial.print(F(" q2: "));
-  Serial.print(q2);
-  Serial.print(F(" q3: "));
-  Serial.println(q3);
-  */
   
   //Warm up the loop
   calibrateAttitude(); //helps to warm up IMU and Madgwick filter before finally entering main loop
-
-  //Lieutenant Columbo
-  Serial.println(F("FUCKING SUS 6"));
-  Serial.print(F("q0: "));
-  Serial.print(q0);
-  Serial.print(F(" q1: "));
-  Serial.print(q1);
-  Serial.print(F(" q2: "));
-  Serial.print(q2);
-  Serial.print(F(" q3: "));
-  Serial.println(q3);
   
   //Indicate entering main loop with 3 quick blinks
   setupBlink(3,160,70); //numBlinks, upTime (ms), downTime (ms)
-  // --------------------------------------------------- EXTREMELY SUSPECT ------------------------------------------------------------
   
-  /*
-  if (isnan(q0)) {
-    Serial.println("its fucking nan");
-    q0 = 69.0f;
-  }
-  Serial.println(q0);
-  */
 }
 
 
@@ -305,41 +255,9 @@ void loop() {
   //printMotorCommands(); //prints the values being written to the motors (expected: 120 to 250)
   //printServoCommands(); //prints the values being written to the servos (expected: 0 to 180)
   //printLoopRate();      //prints the time between loops in microseconds (expected: microseconds between loop iterations)
-
   
   //Get vehicle state
   getIMUdata(); //pulls raw gyro and accelerometer data from IMU and LP filters to remove noise
-
-  //Debugging some shit
-  /*
-  Serial.print(F("GyroX: "));
-  Serial.print(GyroX);
-  Serial.print(F(" GyroY: "));
-  Serial.print(GyroY);
-  Serial.print(F(" GyroZ: "));
-  Serial.print(GyroZ);
-  Serial.print(F(" AccX: "));
-  Serial.print(AccX);
-  Serial.print(F(" AccY: "));
-  Serial.print(AccY);
-  Serial.print(F(" AccZ: "));
-  Serial.print(AccZ);
-  Serial.print(F(" dt: "));
-  Serial.println(dt);
-  */
-
-  //Checking the quarternion values
-  //Why the fuck are these nans
-  /*
-  Serial.print(F("q0: "));
-  Serial.print(q0);
-  Serial.print(F(" q1: "));
-  Serial.print(q1);
-  Serial.print(F(" q2: "));
-  Serial.print(q2);
-  Serial.print(F(" q3: "));
-  Serial.println(q3);
-  */
   
   //Uncomment if we have a magnetometer, but we dont so fuck that shit
   Madgwick6DOF(GyroX, -GyroY, -GyroZ, -AccX, AccY, AccZ, dt); //updates roll_IMU, pitch_IMU, and yaw_IMU (degrees)
@@ -348,19 +266,19 @@ void loop() {
   getDesState(); //convert raw commands to normalized values based on saturated control limits
   
   //PID Controller - SELECT ONE:
-  //controlANGLE(); //stabilize on angle setpoint
+  controlANGLE(); //stabilize on angle setpoint
   //controlANGLE2(); //stabilize on angle setpoint using cascaded method 
   //controlRATE(); //stabilize on rate setpoint
 
   //Actuator mixing and scaling to PWM values
-  //controlMixer(); //mixes PID outputs to scaled actuator commands -- custom mixing assignments done here
-  //scaleCommands(); //scales motor commands to 125 to 250 range (oneshot125 protocol) and servo PWM commands to 0 to 180 (for servo library)
+  controlMixer(); //mixes PID outputs to scaled actuator commands -- custom mixing assignments done here
+  scaleCommands(); //scales motor commands to 125 to 250 range (oneshot125 protocol) and servo PWM commands to 0 to 180 (for servo library)
 
   //Throttle cut check
-  //throttleCut(); //directly sets motor commands to low based on state of ch5
+  throttleCut(); //directly sets motor commands to low based on state of ch5
 
   //Command actuators
-  //commandMotors(); //sends command pulses to each motor pin using OneShot125 protocol
+  commandMotors(); //sends command pulses to each motor pin using OneShot125 protocol
   //Write commands to servo objects
   /*
   servo1.write(s1_command_PWM); 
@@ -373,8 +291,8 @@ void loop() {
   */
   
   //Get vehicle commands for next loop iteration
-  //getCommands(); //pulls current available radio commands
-  //failSafe(); //prevent failures in event of bad receiver connection, defaults to failsafe values assigned in setup
+  getCommandsButBetter(); //pulls current available radio commands
+  failSafe(); //prevent failures in event of bad receiver connection, defaults to failsafe values assigned in setup
 
   //Regulate loop rate
   loopRate(2000); //do not exceed 2000Hz, all filter parameters tuned to 2000Hz by default
@@ -526,13 +444,6 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az, fl
    * beta leads to slower to respond estimate. It is currently tuned for 2kHz loop rate. This function updates the roll_IMU,
    * pitch_IMU, and yaw_IMU variables which are in degrees.
    */
-
-  Serial.print(F(" ax: "));
-  Serial.print(ax);
-  Serial.print(F(" ay: "));
-  Serial.print(ay);
-  Serial.print(F(" az: "));
-  Serial.println(az);
    
   float recipNorm;
   float s0, s1, s2, s3;
@@ -549,8 +460,6 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az, fl
   qDot2 = 0.5f * (q0 * gx + q2 * gz - q3 * gy);
   qDot3 = 0.5f * (q0 * gy - q1 * gz + q3 * gx);
   qDot4 = 0.5f * (q0 * gz + q1 * gy - q2 * gx);
-
-  int c = 0;
   
   //Compute feedback only if accelerometer measurement valid (avoids NaN in accelerometer normalisation)
   if(!((ax == 0.0f) && (ay == 0.0f) && (az == 0.0f))) {
@@ -558,25 +467,9 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az, fl
     recipNorm = invSqrt(ax * ax + ay * ay + az * az);
 
     // Cole ended up being fucking poggers <3
-    /* 
-    Serial.print(" Cole is poggers: ");
-    Serial.println(recipNorm);
-    */
-    
     ax *= recipNorm;
     ay *= recipNorm;
     az *= recipNorm;
-
-    /*
-    Serial.print(F("recipNorm: "));
-    Serial.print(recipNorm);
-    Serial.print(F(" ax: "));
-    Serial.print(ax);
-    Serial.print(F(" ay: "));
-    Serial.print(ay);
-    Serial.print(F(" az: "));
-    Serial.print(az);
-    */
 
     //Auxiliary variables to avoid repeated arithmetic
     _2q0 = 2.0f * q0;
@@ -609,79 +502,7 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az, fl
     qDot2 -= B_madgwick * s1;
     qDot3 -= B_madgwick * s2;
     qDot4 -= B_madgwick * s3;
-
-    /*
-    if (c==0) {
-      // Debug some shit
-      Serial.print(F("recipNorm: "));
-      Serial.print(recipNorm);
-      Serial.print(F(" s0: "));
-      Serial.print(s0);
-      Serial.print(F(" s1: "));
-      Serial.print(s1);
-      Serial.print(F(" s2: "));
-      Serial.print(s2);
-      Serial.print(F(" s3: "));
-      Serial.print(s3);
-      Serial.print(F(" qDot1: "));
-      Serial.print(qDot1);
-      Serial.print(F(" qDot2: "));
-      Serial.print(qDot2);
-      Serial.print(F(" qDot3: "));
-      Serial.print(qDot3);
-      Serial.print(F(" qDot4: "));
-      Serial.print(qDot4);
-      Serial.print(F(" _2q0: "));
-      Serial.print( _2q0);
-      Serial.print(F(" _2q1: "));
-      Serial.print(_2q1);
-      Serial.print(F(" _2q2: "));
-      Serial.print(_2q2);
-      Serial.print(F(" _2q3: "));
-      Serial.print(_2q3);
-      Serial.print(F(" _2q3: "));
-      Serial.print(_2q3);
-      Serial.print(F(" _4q0: "));
-      Serial.print(_4q0);
-      Serial.print(F(" _4q1: "));
-      Serial.print(_4q1);
-      Serial.print(F(" _4q2: "));
-      Serial.print(_4q2);
-      Serial.print(F(" _8q1: "));
-      Serial.print(_8q1);
-      Serial.print(F(" _8q2: "));
-      Serial.print(_8q2);
-      Serial.print(F(" q0q0: "));
-      Serial.print(q0q0);
-      Serial.print(F(" q1q1: "));
-      Serial.print(q1q1);
-      Serial.print(F(" q2q2: "));
-      Serial.print(q2q2);
-      Serial.print(F(" q3q3: "));
-      Serial.print(q3q3);
-      Serial.print(F(" gx: "));
-      Serial.print(gx);
-      Serial.print(F(" gy: "));
-      Serial.print(gy);
-      Serial.print(F(" gz: "));
-      Serial.println(gz);
-    }
-    */
-    c+=1; 
-    
   }
-
-  //Debug qdots lmao
-  /*
-  Serial.print(F(" qDot1: "));
-  Serial.print(qDot1);
-  Serial.print(F(" qDot2: "));
-  Serial.print(qDot2);
-  Serial.print(F(" qDot3: "));
-  Serial.print(qDot3);
-  Serial.print(F(" qDot4: "));
-  Serial.println(qDot4);
-  */
   
   //Integrate rate of change of quaternion to yield quaternion
   //uh what the fuck did you just say?
@@ -698,64 +519,6 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az, fl
   q1 *= recipNorm;
   q2 *= recipNorm;
   q3 *= recipNorm;
-
-
-
-  // Debug some shit
-  /*
-  Serial.print(F("recipNorm: "));
-  Serial.print(recipNorm);
-  Serial.print(F(" s0: "));
-  Serial.print(s0);
-  Serial.print(F(" s1: "));
-  Serial.print(s1);
-  Serial.print(F(" s2: "));
-  Serial.print(s2);
-  Serial.print(F(" s3: "));
-  Serial.print(s3);
-  Serial.print(F(" qDot1: "));
-  Serial.print(qDot1);
-  Serial.print(F(" qDot2: "));
-  Serial.print(qDot2);
-  Serial.print(F(" qDot3: "));
-  Serial.print(qDot3);
-  Serial.print(F(" qDot4: "));
-  Serial.print(qDot4);
-  Serial.print(F(" _2q0: "));
-  Serial.print( _2q0);
-  Serial.print(F(" _2q1: "));
-  Serial.print(_2q1);
-  Serial.print(F(" _2q2: "));
-  Serial.print(_2q2);
-  Serial.print(F(" _2q3: "));
-  Serial.print(_2q3);
-  Serial.print(F(" _2q3: "));
-  Serial.print(_2q3);
-  Serial.print(F(" _4q0: "));
-  Serial.print(_4q0);
-  Serial.print(F(" _4q1: "));
-  Serial.print(_4q1);
-  Serial.print(F(" _4q2: "));
-  Serial.print(_4q2);
-  Serial.print(F(" _8q1: "));
-  Serial.print(_8q1);
-  Serial.print(F(" _8q2: "));
-  Serial.print(_8q2);
-  Serial.print(F(" q0q0: "));
-  Serial.print(q0q0);
-  Serial.print(F(" q1q1: "));
-  Serial.print(q1q1);
-  Serial.print(F(" q2q2: "));
-  Serial.print(q2q2);
-  Serial.print(F(" q3q3: "));
-  Serial.print(q3q3);
-  Serial.print(F(" gx: "));
-  Serial.print(gx);
-  Serial.print(F(" gy: "));
-  Serial.print(gy);
-  Serial.print(F(" gz: "));
-  Serial.println(gz);
-  */
 
   //compute angles
   roll_IMU = atan2(q0*q1 + q2*q3, 0.5f - q1*q1 - q2*q2)*57.29577951; //degrees
@@ -984,11 +747,15 @@ void controlMixer() {
    * in preparation to be sent to the motor ESCs and servos.
    */
   //Quad mixing
-  //m1 = front left, m2 = front right, m3 = back right, m4 = back left
+  //m1 = front left, m2 = front right, m3 = Rear EDF
+  /*
+   * This code is adapted from quadcopter control code. See above for more information about the quadcopter configuration. m1 is for the number 1 motor.
+   * m2 is for the number 2 motor. m3 is for the number 3 motor, or the rear EDF
+   */
   m1_command_scaled = thro_des - pitch_PID + roll_PID + yaw_PID;
   m2_command_scaled = thro_des - pitch_PID - roll_PID - yaw_PID;
   m3_command_scaled = thro_des + pitch_PID - roll_PID + yaw_PID;
-  m4_command_scaled = thro_des + pitch_PID + roll_PID - yaw_PID;
+  m4_command_scaled = 0;
   m5_command_scaled = 0;
   m6_command_scaled = 0;
 
@@ -1063,29 +830,68 @@ void getCommands() {
    * The raw radio commands are filtered with a first order low-pass filter to eliminate any really high frequency noise. 
    */
 
-  #if defined USE_PPM_RX || defined USE_PWM_RX
-    channel_1_pwm = getRadioPWM(1);
-    channel_2_pwm = getRadioPWM(2);
-    channel_3_pwm = getRadioPWM(3);
-    channel_4_pwm = getRadioPWM(4);
-    channel_5_pwm = getRadioPWM(5);
-    channel_6_pwm = getRadioPWM(6);
-    
-  #elif defined USE_SBUS_RX
-    if (sbus.read(&sbusChannels[0], &sbusFailSafe, &sbusLostFrame))
-    {
-      //sBus scaling below is for Taranis-Plus and X4R-SB
-      float scale = 0.615;  
-      float bias  = 895.0; 
-      channel_1_pwm = sbusChannels[0] * scale + bias;
-      channel_2_pwm = sbusChannels[1] * scale + bias;
-      channel_3_pwm = sbusChannels[2] * scale + bias;
-      channel_4_pwm = sbusChannels[3] * scale + bias;
-      channel_5_pwm = sbusChannels[4] * scale + bias;
-      channel_6_pwm = sbusChannels[5] * scale + bias; 
-    }
-  #endif
+  // Get radio PWN inputs from TX/RX
+  channel_1_pwm = getRadioPWM(1);
+  channel_2_pwm = getRadioPWM(2);
+  channel_3_pwm = getRadioPWM(3);
+  channel_4_pwm = getRadioPWM(4);
+  channel_5_pwm = getRadioPWM(5);
+  channel_6_pwm = getRadioPWM(6);
+
+  //Low-pass the critical commands and update previous values
+  float b = 0.2; //lower=slower, higher=noiser
+  channel_1_pwm = (1.0 - b)*channel_1_pwm_prev + b*channel_1_pwm;
+  channel_2_pwm = (1.0 - b)*channel_2_pwm_prev + b*channel_2_pwm;
+  channel_3_pwm = (1.0 - b)*channel_3_pwm_prev + b*channel_3_pwm;
+  channel_4_pwm = (1.0 - b)*channel_4_pwm_prev + b*channel_4_pwm;
+  channel_1_pwm_prev = channel_1_pwm;
+  channel_2_pwm_prev = channel_2_pwm;
+  channel_3_pwm_prev = channel_3_pwm;
+  channel_4_pwm_prev = channel_4_pwm;
+}
+
+void getCommandsButBetter() {
+  //DESCRIPTION: Get raw PWM values for every channel from the radio
+  /*
+   * Is better than the other function and gets the PWM stuff from the RX without using some dumb arduino radio shit that we dont need lmao.
+   */
+
+  /*
+  // Get radio PWN inputs from TX/RX
+  channel_1_pwm = getRadioPWM(1);
+  channel_2_pwm = getRadioPWM(2);
+  channel_3_pwm = getRadioPWM(3);
+  channel_4_pwm = getRadioPWM(4);
+  channel_5_pwm = getRadioPWM(5);
+  channel_6_pwm = getRadioPWM(6);
+
+  //Low-pass the critical commands and update previous values
+  float b = 0.2; //lower=slower, higher=noiser
+  channel_1_pwm = (1.0 - b)*channel_1_pwm_prev + b*channel_1_pwm;
+  channel_2_pwm = (1.0 - b)*channel_2_pwm_prev + b*channel_2_pwm;
+  channel_3_pwm = (1.0 - b)*channel_3_pwm_prev + b*channel_3_pwm;
+  channel_4_pwm = (1.0 - b)*channel_4_pwm_prev + b*channel_4_pwm;
+  channel_1_pwm_prev = channel_1_pwm;
+  channel_2_pwm_prev = channel_2_pwm;
+  channel_3_pwm_prev = channel_3_pwm;
+  channel_4_pwm_prev = channel_4_pwm;
+  */
   
+  throttleRaw = pulseIn(ch1Pin, HIGH);
+  aileronRaw = pulseIn(ch2Pin, HIGH);
+  elevatorRaw = pulseIn(ch3Pin, HIGH);
+  rudderRaw = pulseIn(ch4Pin, HIGH);
+  tiltRaw = pulseIn(ch5Pin, HIGH);
+  tiltRaw2 = pulseIn(ch6Pin, HIGH);
+
+  // Get radio PWN inputs from TX/RX
+  channel_1_pwm = throttleRaw;
+  channel_2_pwm = aileronRaw;
+  channel_3_pwm = elevatorRaw;
+  channel_4_pwm = rudderRaw;
+  channel_5_pwm = tiltRaw;
+  channel_6_pwm = tiltRaw2;
+
   //Low-pass the critical commands and update previous values
   float b = 0.2; //lower=slower, higher=noiser
   channel_1_pwm = (1.0 - b)*channel_1_pwm_prev + b*channel_1_pwm;
@@ -1101,7 +907,7 @@ void getCommands() {
 void failSafe() {
   //DESCRIPTION: If radio gives garbage values, set all commands to default values
   /*
-   * Radio connection failsafe used to check if the getCommands() function is returning acceptable pwm values. If any of 
+   * Radio connection failsafe used to check if the getCommandsButBetter() function is returning acceptable pwm values. If any of 
    * the commands are lower than 800 or higher than 2200, then we can be certain that there is an issue with the radio
    * connection (most likely hardware related). If any of the channels show this failure, then all of the radio commands 
    * channel_x_pwm are set to default failsafe values specified in the setup. Comment out this function when troubleshooting 
