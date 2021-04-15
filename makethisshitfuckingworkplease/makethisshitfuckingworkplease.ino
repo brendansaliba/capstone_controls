@@ -10,6 +10,7 @@
 #include <Wire.h>     //I2c communication
 #include <SPI.h>      //SPI communication
 #include <PWMServo.h> //commanding any extra actuators(servos, etc)
+#include <Servo.h> //redundant because fuck this
 
 #include "src/MPU6050/MPU6050.h"
 MPU6050 mpu6050;
@@ -33,9 +34,12 @@ MPU6050 mpu6050;
 #define ACCEL_SCALE_FACTOR 16384.0
 
 
+
+
 //========================================================================================================================//
 //                                               USER-SPECIFIED VARIABLES                                                 //                           
 //========================================================================================================================//
+
 
 //Radio failsafe values for every channel in the event that bad reciever data is detected. Recommended defaults:
 unsigned long channel_1_fs = 1000; //throttle
@@ -44,6 +48,12 @@ unsigned long channel_3_fs = 1500; //elevator
 unsigned long channel_4_fs = 1500; //rudder
 unsigned long channel_5_fs = 2000; //gear, greater than 1500 = throttle cut
 unsigned long channel_6_fs = 2000; //aux1
+unsigned long rightTilt_failsafe = 1020;
+unsigned long leftTilt_failsafe = 2000;
+
+//PWM Numbers
+const int PWM_max = 2000;
+const int PWM_min = 1000;
 
 //Raw inputs from the RX
 float aileronRaw; // channel 1
@@ -85,23 +95,36 @@ float Kp_yaw = 0.3;           //Yaw P-gain
 float Ki_yaw = 0.05;          //Yaw I-gain
 float Kd_yaw = 0.00015;       //Yaw D-gain (be careful when increasing too high, motors will begin to overheat!)
 
+//Some constants
+const int LOOPRATE = 2000; //hertz
+const int FADETIME = 3; //seconds
+
 
 //========================================================================================================================//
 //                                                     DECLARE PINS                                                       //                           
 //========================================================================================================================//                                          
+
 
 //NOTES: 
 //Pin 13 is reserved for onboard LED
 //Pins 20 (SDA) and 21 (SCL) on the Arduino MEGA 2560 are reserved for the MPU6050 IMU I2C communication in default setup
 //Note: If using SBUS, connect to pin 21 (RX5) (uh, fuck this shit)
 //Note: Ignore the odd order of these pins, fucking dumbass arduino shit
-const int ch1Pin = 26; //throttle
-const int ch2Pin = 22; //aileron
-const int ch3Pin = 24; //elevator
-const int ch4Pin = 28; //rudder
+//Pins below are for radio control (input to arduino from RX)
+const int ch1Pin = 48; //throttle
+const int ch2Pin = 52; //aileron
+const int ch3Pin = 46; //elevator
+const int ch4Pin = 38; //rudder
 const int ch5Pin = 30; //gear (throttle cut)
-const int ch6Pin = 32; //aux1 (free aux channel)
+const int ch6Pin = 42; //aux1 (free aux channel)
 const int PPM_Pin = 23;
+
+//Output control pins
+const int tiltServoRightPin = 30;
+const int tiltServoLeftPin = 34;
+const int rightMainMotorPin = 22;
+const int leftMainMotorPin = 24;
+const int rearEDFMotorPin = 26;
 
 //OneShot125 ESC pin outputs:
 const int m1Pin = 0;
@@ -121,14 +144,11 @@ const int servo6Pin = 11;
 const int servo7Pin = 12;
 
 // Servo objects to control a servo or ESC with PWM
-PWMServo servo1;
-PWMServo servo2;
-PWMServo servo3;
-PWMServo servo4;
-PWMServo servo5;
-PWMServo servo6;
-PWMServo servo7;
+PWMServo servo1, servo2, servo3, servo4, servo5, servo6, servo7;
+PWMServo motor1, motor2, motor3; //left main, right main, rear edf
 
+//Other SErvos
+Servo rightTiltServo, leftTiltServo, rightMotor, leftMotor, rearMotor;
 
 //========================================================================================================================//
 
@@ -146,13 +166,6 @@ bool blinkAlternate;
 //Radio comm:
 unsigned long channel_1_pwm, channel_2_pwm, channel_3_pwm, channel_4_pwm, channel_5_pwm, channel_6_pwm;
 unsigned long channel_1_pwm_prev, channel_2_pwm_prev, channel_3_pwm_prev, channel_4_pwm_prev;
-
-#if defined USE_SBUS_RX
-  SBUS sbus(Serial5);
-  uint16_t sbusChannels[16];
-  bool sbusFailSafe;
-  bool sbusLostFrame;
-#endif
 
 //IMU:
 float AccX, AccY, AccZ;
@@ -182,11 +195,14 @@ int m1_command_PWM, m2_command_PWM, m3_command_PWM, m4_command_PWM, m5_command_P
 float s1_command_scaled, s2_command_scaled, s3_command_scaled, s4_command_scaled, s5_command_scaled, s6_command_scaled, s7_command_scaled;
 int s1_command_PWM, s2_command_PWM, s3_command_PWM, s4_command_PWM, s5_command_PWM, s6_command_PWM, s7_command_PWM;
 
+//Tile Variables
+float rightTiltSetting_PWM, leftTiltSetting_PWM;
 
 
 //========================================================================================================================//
 //                                                      VOID SETUP                                                        //                           
 //========================================================================================================================//
+
 
 void setup() {
   Serial.begin(500000); //usb serial
@@ -205,6 +221,12 @@ void setup() {
   digitalWrite(13, HIGH);
 
   delay(10);
+
+  //Initialize radio communication
+  radioSetup();
+
+  //Setup servos
+  setupServos();
   
   //Set radio channels to default (safe) values before entering main loop
   channel_1_pwm = channel_1_fs;
@@ -225,18 +247,20 @@ void setup() {
   delay(100);
   
   //Warm up the loop
+  Serial.println("calibrating");
   calibrateAttitude(); //helps to warm up IMU and Madgwick filter before finally entering main loop
-  
+  Serial.println("done");
+
   //Indicate entering main loop with 3 quick blinks
   setupBlink(3,160,70); //numBlinks, upTime (ms), downTime (ms)
-  
 }
 
 
 //========================================================================================================================//
 //                                                       MAIN LOOP                                                        //                           
 //========================================================================================================================//
-                                                  
+
+
 void loop() {
   prev_time = current_time;      
   current_time = micros();      
@@ -272,13 +296,20 @@ void loop() {
 
   //Actuator mixing and scaling to PWM values
   controlMixer(); //mixes PID outputs to scaled actuator commands -- custom mixing assignments done here
-  scaleCommands(); //scales motor commands to 125 to 250 range (oneshot125 protocol) and servo PWM commands to 0 to 180 (for servo library)
+  scaleCommands(); //scales motor commands to 1000 to 2000 range (PWM standard protocol) and servo PWM commands to 1000 to 2000 (for servo library)
+
+  // SOME SHIT THAT MAY GO AWAY  
+  rightTiltServo.writeMicroseconds(rightTiltSetting_PWM);
+  leftTiltServo.writeMicroseconds(leftTiltSetting_PWM);
+  
 
   //Throttle cut check
   throttleCut(); //directly sets motor commands to low based on state of ch5
 
   //Command actuators
-  commandMotors(); //sends command pulses to each motor pin using OneShot125 protocol
+  //commandMotors(); //sends command pulses to each motor pin using OneShot125 protocol
+  commandMotorsBetterButMaybeSlower();
+  
   //Write commands to servo objects
   /*
   servo1.write(s1_command_PWM); 
@@ -291,17 +322,19 @@ void loop() {
   */
   
   //Get vehicle commands for next loop iteration
-  getCommandsButBetter(); //pulls current available radio commands
+  //getCommandsButBetter(); //pulls current available radio commands
+  getCommands(); //lmao
   failSafe(); //prevent failures in event of bad receiver connection, defaults to failsafe values assigned in setup
 
   //Regulate loop rate
-  loopRate(2000); //do not exceed 2000Hz, all filter parameters tuned to 2000Hz by default
+  loopRate(LOOPRATE); //do not exceed 2000Hz, all filter parameters tuned to 2000Hz by default
 }
 
 
 //========================================================================================================================//
 //                                                      FUNCTIONS                                                         //                           
 //========================================================================================================================//
+
 
 void IMUinit() {
   //DESCRIPTION: Initialize IMU
@@ -745,6 +778,8 @@ void controlMixer() {
    * normalized (0 to 1) thro_des command for throttle control. Can also apply direct unstabilized commands from the transmitter with 
    * roll_passthru, pitch_passthru, and yaw_passthu. mX_command_scaled and sX_command scaled variables are used in scaleCommands() 
    * in preparation to be sent to the motor ESCs and servos.
+   * 
+   * This function will also check for desired flight condition and then fade the shit linearly so that the stuff works properly then it will also fade out some other shit according to Dallas.
    */
   //Quad mixing
   //m1 = front left, m2 = front right, m3 = Rear EDF
@@ -768,15 +803,45 @@ void controlMixer() {
   s6_command_scaled = 0;
   s7_command_scaled = 0;
 
-  //Example use of the linear fader for float type variables. Linearly interpolate between minimum and maximum values for Kp_pitch_rate variable based on state of channel 6:
+  //Example use of the linear fader for float type variables. Linearly interpolate between minimum and maximum values for tilt_angle variable based on state of channel 5:
+  //ESSENTIAL: Uncomment the below code (check for shit that makes sense like mirror image servo dumbass stuff) to make the tilt stuff work.
+  //ESSENTIAL: May also need to fade out all of the motor gains to zero or whatever to make the rear EDF go to zero and the main motors work with throttle.
   /*
-  if (channel_6_pwm > 1500){ //go to max specified value in 5.5 seconds
-    Kp_pitch_rate = floatFaderLinear(Kp_pitch_rate, 0.1, 0.3, 5.5, 1, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+  if (channel_5_pwm > 1500){ //go to max specified value in 5.5 seconds
+    Kp_pitch_rate = floatFaderLinear(tilt_angle, 0, 90, 3, 1, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
   }
-  if (channel_6_pwm < 1500) { //go to min specified value in 2.5 seconds
-    Kp_pitch_rate = floatFaderLinear(Kp_pitch_rate, 0.1, 0.3, 2.5, 0, 2000); //parameter, minimum value, maximum value, fadeTime, state (0 min or 1 max), loop frequency
+  if (channel_5_pwm < 1500) { //go to min specified value in 2.5 seconds
+    Kp_pitch_rate = floatFaderLinear(tilt_angle, 0, 90, 3, 0, 2000); //parameter, minimum value, maximum value, fadeTime, state (0 min or 1 max), loop frequency
   }
   */
+
+  //Check for flight condition
+  if (channel_6_pwm > 1500){ // titRaw may have some stupid stuff with the throttle.... check later maybe?
+    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, 2, 1, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, 2, 0, 2000);
+  }
+  if (channel_6_pwm < 1500) { //go to min specified value in 2.5 seconds
+    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, 2, 0, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, 2, 1, 2000);  
+  }
+}
+
+void controlTilt() {
+  //DESCRIPTION: Takes PWM input from RX and commands tilt servo motors accordingly
+  /*
+   * controlTilt() adjusts the tilt angle of the tilt servos based on the desired control input from the RX directly. Convention is that tilt angle is measured with respect to the chord of the wing.
+   * 0 degrees tilt is for conventional flight, 90 degrees is for hover. 
+   */
+    
+  if (channel_6_pwm > 1500) {
+    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, FADETIME, 1, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, FADETIME, 0, 2000);
+  }
+  else if (channel_6_pwm < 1500) {
+    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, FADETIME, 0, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, FADETIME, 1, 2000); 
+  }
+  
 }
 
 void scaleCommands() {
@@ -787,38 +852,40 @@ void scaleCommands() {
    * mX_command_PWM are updated here which are used to command the motors in commandMotors(). sX_command_PWM are updated 
    * which are used to command the servos.
    */
+
   //Scaled to 125us - 250us for oneshot125 protocol
-  m1_command_PWM = m1_command_scaled*125 + 125;
-  m2_command_PWM = m2_command_scaled*125 + 125;
-  m3_command_PWM = m3_command_scaled*125 + 125;
-  m4_command_PWM = m4_command_scaled*125 + 125;
-  m5_command_PWM = m5_command_scaled*125 + 125;
-  m6_command_PWM = m6_command_scaled*125 + 125;
+  m1_command_PWM = m1_command_scaled*PWM_min + PWM_min;
+  m2_command_PWM = m2_command_scaled*PWM_min + PWM_min;
+  m3_command_PWM = m3_command_scaled*PWM_min + PWM_min;
+//  m4_command_PWM = m4_command_scaled*125 + 125;
+//  m5_command_PWM = m5_command_scaled*125 + 125;
+//  m6_command_PWM = m6_command_scaled*125 + 125;
+
   //Constrain commands to motors within oneshot125 bounds
-  m1_command_PWM = constrain(m1_command_PWM, 125, 250);
-  m2_command_PWM = constrain(m2_command_PWM, 125, 250);
-  m3_command_PWM = constrain(m3_command_PWM, 125, 250);
-  m4_command_PWM = constrain(m4_command_PWM, 125, 250);
-  m5_command_PWM = constrain(m5_command_PWM, 125, 250);
-  m6_command_PWM = constrain(m6_command_PWM, 125, 250);
+  m1_command_PWM = constrain(m1_command_PWM, PWM_min, PWM_max);
+  m2_command_PWM = constrain(m2_command_PWM, PWM_min, PWM_max);
+  m3_command_PWM = constrain(m3_command_PWM, PWM_min, PWM_max);
+//  m4_command_PWM = constrain(m4_command_PWM, 125, 250);
+//  m5_command_PWM = constrain(m5_command_PWM, 125, 250);
+//  m6_command_PWM = constrain(m6_command_PWM, 125, 250);
 
   //Scaled to 0-180 for servo library
-  s1_command_PWM = s1_command_scaled*180;
-  s2_command_PWM = s2_command_scaled*180;
-  s3_command_PWM = s3_command_scaled*180;
-  s4_command_PWM = s4_command_scaled*180;
-  s5_command_PWM = s5_command_scaled*180;
-  s6_command_PWM = s6_command_scaled*180;
-  s7_command_PWM = s7_command_scaled*180;
-  //Constrain commands to servos within servo library bounds
-  s1_command_PWM = constrain(s1_command_PWM, 0, 180);
-  s2_command_PWM = constrain(s2_command_PWM, 0, 180);
-  s3_command_PWM = constrain(s3_command_PWM, 0, 180);
-  s4_command_PWM = constrain(s4_command_PWM, 0, 180);
-  s5_command_PWM = constrain(s5_command_PWM, 0, 180);
-  s6_command_PWM = constrain(s6_command_PWM, 0, 180);
-  s7_command_PWM = constrain(s7_command_PWM, 0, 180);
+  s1_command_PWM = s1_command_scaled*PWM_min + PWM_min;
+  s2_command_PWM = s2_command_scaled*PWM_min + PWM_min;
+//  s3_command_PWM = s3_command_scaled*180;
+//  s4_command_PWM = s4_command_scaled*180;
+//  s5_command_PWM = s5_command_scaled*180;
+//  s6_command_PWM = s6_command_scaled*180;
+//  s7_command_PWM = s7_command_scaled*180;
 
+  //Constrain commands to servos within servo library bounds
+  s1_command_PWM = constrain(s1_command_PWM, PWM_min, PWM_max);
+  s2_command_PWM = constrain(s2_command_PWM, PWM_min, PWM_max);
+//  s3_command_PWM = constrain(s3_command_PWM, 0, 180);
+//  s4_command_PWM = constrain(s4_command_PWM, 0, 180);
+//  s5_command_PWM = constrain(s5_command_PWM, 0, 180);
+//  s6_command_PWM = constrain(s6_command_PWM, 0, 180);
+//  s7_command_PWM = constrain(s7_command_PWM, 0, 180);
 }
 
 void getCommands() {
@@ -854,6 +921,7 @@ void getCommandsButBetter() {
   //DESCRIPTION: Get raw PWM values for every channel from the radio
   /*
    * Is better than the other function and gets the PWM stuff from the RX without using some dumb arduino radio shit that we dont need lmao.
+   * NOTE: pulseIn may be extremely slow for our purposes. Ideally, use something that is fast like the radio functions we have prebuilt here... but how tf do they work?
    */
 
   /*
@@ -913,8 +981,8 @@ void failSafe() {
    * channel_x_pwm are set to default failsafe values specified in the setup. Comment out this function when troubleshooting 
    * your radio connection in case any extreme values are triggering this function to overwrite the printed variables.
    */
-  unsigned minVal = 800;
-  unsigned maxVal = 2200;
+  unsigned minVal = 1000;
+  unsigned maxVal = 2000;
   int check1 = 0;
   int check2 = 0;
   int check3 = 0;
@@ -938,6 +1006,8 @@ void failSafe() {
     channel_4_pwm = channel_4_fs;
     channel_5_pwm = channel_5_fs;
     channel_6_pwm = channel_6_fs;
+    rightTiltSetting_PWM = rightTilt_failsafe;
+    leftTiltSetting_PWM = leftTilt_failsafe;
   }
 }
 
@@ -1001,6 +1071,16 @@ void commandMotors() {
   }
 }
 
+void commandMotorsBetterButMaybeSlower() {
+  //DESCRIPTION: Send PWM to motors
+  /*
+   * Mmmm... motors go brrrr
+   */
+  leftMotor.writeMicroseconds(m1_command_PWM);
+  rightMotor.writeMicroseconds(m2_command_PWM);
+  rearMotor.writeMicroseconds(m3_command_PWM);
+}
+
 float floatFaderLinear(float param, float param_min, float param_max, float fadeTime, int state, int loopFreq){
   //DESCRIPTION: Linearly fades a float type variable between min and max bounds based on desired high or low state and time
   /*  
@@ -1050,13 +1130,14 @@ void throttleCut() {
    * called before commandMotors() is called so that the last thing checked is if the user is giving permission to command
    * the motors to anything other than minimum value. Safety first. 
    */
+
   if (channel_5_pwm > 1500) {
-    m1_command_PWM = 120;
-    m2_command_PWM = 120;
-    m3_command_PWM = 120;
-    m4_command_PWM = 120;
-    m5_command_PWM = 120;
-    m6_command_PWM = 120;
+    m1_command_PWM = channel_1_fs;
+    m2_command_PWM = channel_1_fs;
+    m3_command_PWM = channel_1_fs;
+    m4_command_PWM = channel_1_fs;
+    m5_command_PWM = channel_1_fs;
+    m6_command_PWM = channel_1_fs;
     
     //uncomment if using servo PWM variables to control motor ESCs
     //s1_command_PWM = 0;
@@ -1115,6 +1196,23 @@ void setupBlink(int numBlinks,int upTime, int downTime) {
     digitalWrite(13, HIGH);
     delay(upTime);
   }
+}
+
+void setupServos() {
+  //Attach to pins defined before setup
+  rightTiltServo.attach(tiltServoRightPin);
+  leftTiltServo.attach(tiltServoLeftPin);
+  rightMotor.attach(rightMainMotorPin);
+  leftMotor.attach(leftMainMotorPin);
+  rearMotor.attach(rearEDFMotorPin);
+
+  
+  //
+  rightTiltServo.writeMicroseconds(rightTilt_failsafe);
+  leftTiltServo.writeMicroseconds(leftTilt_failsafe);
+  rightMotor.writeMicroseconds(channel_1_fs);
+  leftMotor.writeMicroseconds(channel_1_fs);
+  rearMotor.writeMicroseconds(channel_1_fs);
 }
 
 void printRadioData() {
@@ -1258,8 +1356,10 @@ void columbo(char message) {
 
 //=========================================================================================//
 
+
 //HELPER FUNCTIONS
 
+//Problem Child
 float invSqrt(float x) {
   //Fast inverse sqrt for madgwick filter
   float halfx = 0.5f * x;

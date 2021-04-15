@@ -13,40 +13,23 @@ int ppm_counter = 0;
 unsigned long time_ms = 0;
 
 void radioSetup() {
-  //PPM Receiver 
-  #if defined USE_PPM_RX
-    //Declare interrupt pin
-    pinMode(PPM_Pin, INPUT_PULLUP);
-    delay(20);
-    //Attach interrupt and point to corresponding ISR function
-    attachInterrupt(digitalPinToInterrupt(PPM_Pin), getPPM, CHANGE);
-
-  //PWM Receiver
-  #elif defined USE_PWM_RX
-    //Declare interrupt pins 
-    pinMode(ch1Pin, INPUT_PULLUP);
-    pinMode(ch2Pin, INPUT_PULLUP);
-    pinMode(ch3Pin, INPUT_PULLUP);
-    pinMode(ch4Pin, INPUT_PULLUP);
-    pinMode(ch5Pin, INPUT_PULLUP);
-    pinMode(ch6Pin, INPUT_PULLUP);
-    delay(20);
-    //Attach interrupt and point to corresponding ISR functions
-    attachInterrupt(digitalPinToInterrupt(ch1Pin), getCh1, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ch2Pin), getCh2, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ch3Pin), getCh3, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ch4Pin), getCh4, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ch5Pin), getCh5, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ch6Pin), getCh6, CHANGE);
-    delay(20);
-
-  //SBUS Recevier 
-  #elif defined USE_SBUS_RX
-    sbus.begin();
-    
-  #else
-    #error No RX type defined...
-  #endif
+  //Declare interrupt pins 
+  pinMode(ch1Pin, INPUT_PULLUP);
+  pinMode(ch2Pin, INPUT_PULLUP);
+  pinMode(ch3Pin, INPUT_PULLUP);
+  pinMode(ch4Pin, INPUT_PULLUP);
+  pinMode(ch5Pin, INPUT_PULLUP);
+  pinMode(ch6Pin, INPUT_PULLUP);
+  delay(20);
+  
+  //Attach interrupt and point to corresponding ISR functions
+  attachInterrupt(digitalPinToInterrupt(ch1Pin), getCh1, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ch2Pin), getCh2, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ch3Pin), getCh3, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ch4Pin), getCh4, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ch5Pin), getCh5, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ch6Pin), getCh6, CHANGE);
+  delay(20);
 }
 
 unsigned long getRadioPWM(int ch_num) {

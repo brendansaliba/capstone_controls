@@ -1,15 +1,7 @@
 #include <Servo.h>
-#include <movingAvg.h>
 
 // ----------------------------------- DEFINE THINGS
 // -------------------------------------------------
-// moving average objects
-movingAvg smoothInput1(5); 
-movingAvg smoothInput2(5);
-movingAvg smoothInput3(15);
-movingAvg smoothInput4(5);
-movingAvg smoothInput5(5);
-movingAvg smoothInput6(5);
 
 // servo objects
 Servo rearESC;
@@ -73,15 +65,6 @@ void pinModeSetupInput() {
   pinMode(6, INPUT);
   pinMode(7, INPUT);
   pinMode(8, INPUT);
-}
-
-void initMovingAvgObjects() {
-  smoothInput1.begin();
-  smoothInput2.begin();
-  smoothInput3.begin();
-  smoothInput4.begin();
-  smoothInput5.begin();
-  smoothInput6.begin();
 }
 
 void pinModeSetupOutput() {
