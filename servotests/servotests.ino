@@ -7,7 +7,7 @@ Servo escRight, escLeft, tiltRight, tiltLeft, escRear, aileronServo, elevatorSer
 
 // LMAO FUCK THIS SHIT
 float dt, tiltRaw2;
-float HERTZ = 10;
+float HERTZ = 2000;
 unsigned long current_time, prev_time;
 
 // Define the servo pin:
@@ -17,8 +17,8 @@ unsigned long current_time, prev_time;
 #define tiltLeftPin 34
 #define aileronPin 52
 #define elevatorPin 46
-#define throttlePin 48
-#define rudderPin 38 //50
+#define throttlePin 49
+#define rudderPin 37 //50
 #define escRearPin 26
 #define tiltPin 42
 
@@ -88,12 +88,12 @@ void loop() {
   tiltRight.writeMicroseconds(rightTiltSetting_PWM);
   tiltLeft.writeMicroseconds(leftTiltSetting_PWM);
 //
-
-//  aileronRaw = pulseIn(aileronPin, HIGH);
-//  elevatorRaw = pulseIn(elevatorRaw, HIGH);
-//  rudderRaw = pulseIn(rudderRaw, HIGH);
-//  throttleRaw = pulseIn(throttleRaw, HIGH);
-//  tiltRaw = pulseIn(tiltPin, HIGH);
+//
+  aileronRaw = pulseIn(aileronPin, HIGH);
+  elevatorRaw = pulseIn(elevatorPin, HIGH);
+  rudderRaw = pulseIn(rudderPin, HIGH);
+  throttleRaw = pulseIn(throttlePin, HIGH);
+  tiltRaw = pulseIn(tiltPin, HIGH);
 
   Serial.print("aileron: ");
   Serial.print(aileronRaw);
