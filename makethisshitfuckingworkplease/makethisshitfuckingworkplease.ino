@@ -97,7 +97,11 @@ float Kd_yaw = 0.00015;       //Yaw D-gain (be careful when increasing too high,
 
 //Some constants
 const int LOOPRATE = 2000; //hertz
-const int FADETIME = 3; //seconds
+const int FADETIME = 1; //seconds
+const float FUCKING_CORRECTION_FACTOR = 1; //to fix the bunk esc's
+
+//dallas big brain
+float hoverControlScalar = 1;
 
 
 //========================================================================================================================//
@@ -111,13 +115,24 @@ const int FADETIME = 3; //seconds
 //Note: If using SBUS, connect to pin 21 (RX5) (uh, fuck this shit)
 //Note: Ignore the odd order of these pins, fucking dumbass arduino shit
 //Pins below are for radio control (input to arduino from RX)
-const int ch1Pin = 48; //throttle
-const int ch2Pin = 52; //aileron
-const int ch3Pin = 46; //elevator
-const int ch4Pin = 38; //rudder
+const int ch1Pin = 2; //throttle //44
+const int ch2Pin = 3; //aileron //52
+const int ch3Pin = 18; //elevator //48
+const int ch4Pin = 38; //rudder 
 const int ch5Pin = 30; //gear (throttle cut)
-const int ch6Pin = 42; //aux1 (free aux channel)
+const int ch6Pin = 19; //aux1 (free aux channel) //42
 const int PPM_Pin = 23;
+
+//#define escRightPin 22
+//#define escLeftPin 24
+//#define escRearPin 26
+//#define tiltRightPin 30
+//#define tiltLeftPin 34
+//#define aileronPin 52
+//#define elevatorPin 48
+//#define throttlePin 44
+//#define rudderPin 38 //50
+//#define tiltPin 42
 
 //Output control pins
 const int tiltServoRightPin = 30;
@@ -247,9 +262,9 @@ void setup() {
   delay(100);
   
   //Warm up the loop
-  Serial.println("calibrating");
+  Serial.println("calibrating IMU");
   calibrateAttitude(); //helps to warm up IMU and Madgwick filter before finally entering main loop
-  Serial.println("done");
+  Serial.println("complete. dont fucking die");
 
   //Indicate entering main loop with 3 quick blinks
   setupBlink(3,160,70); //numBlinks, upTime (ms), downTime (ms)
@@ -276,7 +291,7 @@ void loop() {
   //printMagData();       //prints filtered magnetometer data direct from IMU (expected: ~ -300 to 300)
   //printRollPitchYaw();  //prints roll, pitch, and yaw angles in degrees from Madgwick filter (expected: degrees, 0 when level)
   //printPIDoutput();     //prints computed stabilized PID variables from controller and desired setpoint (expected: ~ -1 to 1)
-  //printMotorCommands(); //prints the values being written to the motors (expected: 120 to 250)
+  printMotorCommands(); //prints the values being written to the motors (expected: 120 to 250)
   //printServoCommands(); //prints the values being written to the servos (expected: 0 to 180)
   //printLoopRate();      //prints the time between loops in microseconds (expected: microseconds between loop iterations)
   
@@ -294,21 +309,19 @@ void loop() {
   //controlANGLE2(); //stabilize on angle setpoint using cascaded method 
   //controlRATE(); //stabilize on rate setpoint
 
+  //Control the tilt angle
+  controlTilt();
+
   //Actuator mixing and scaling to PWM values
   controlMixer(); //mixes PID outputs to scaled actuator commands -- custom mixing assignments done here
   scaleCommands(); //scales motor commands to 1000 to 2000 range (PWM standard protocol) and servo PWM commands to 1000 to 2000 (for servo library)
-
-  // SOME SHIT THAT MAY GO AWAY  
-  rightTiltServo.writeMicroseconds(rightTiltSetting_PWM);
-  leftTiltServo.writeMicroseconds(leftTiltSetting_PWM);
-  
 
   //Throttle cut check
   throttleCut(); //directly sets motor commands to low based on state of ch5
 
   //Command actuators
   //commandMotors(); //sends command pulses to each motor pin using OneShot125 protocol
-  commandMotorsBetterButMaybeSlower();
+  commandMotorsBetterButMaybeSlowerJustKiddingItsNotReallySlow();
   
   //Write commands to servo objects
   /*
@@ -324,7 +337,7 @@ void loop() {
   //Get vehicle commands for next loop iteration
   //getCommandsButBetter(); //pulls current available radio commands
   getCommands(); //lmao
-  failSafe(); //prevent failures in event of bad receiver connection, defaults to failsafe values assigned in setup
+  //failSafe(); //prevent failures in event of bad receiver connection, defaults to failsafe values assigned in setup
 
   //Regulate loop rate
   loopRate(LOOPRATE); //do not exceed 2000Hz, all filter parameters tuned to 2000Hz by default
@@ -614,7 +627,7 @@ void controlANGLE() {
   }
   integral_pitch = constrain(integral_pitch, -i_limit, i_limit); //saturate integrator to prevent unsafe buildup
   derivative_pitch = GyroY;
-  pitch_PID = .01*(Kp_pitch_angle*error_pitch + Ki_pitch_angle*integral_pitch - Kd_pitch_angle*derivative_pitch); //scaled by .01 to bring within -1 to 1 range
+  pitch_PID = 0.01*(Kp_pitch_angle*error_pitch + Ki_pitch_angle*integral_pitch - Kd_pitch_angle*derivative_pitch); //scaled by .01 to bring within -1 to 1 range
 
   //Yaw, stablize on rate from GyroZ
   error_yaw = yaw_des - GyroZ;
@@ -624,7 +637,7 @@ void controlANGLE() {
   }
   integral_yaw = constrain(integral_yaw, -i_limit, i_limit); //saturate integrator to prevent unsafe buildup
   derivative_yaw = (error_yaw - error_yaw_prev)/dt; 
-  yaw_PID = .01*(Kp_yaw*error_yaw + Ki_yaw*integral_yaw + Kd_yaw*derivative_yaw); //scaled by .01 to bring within -1 to 1 range
+  yaw_PID = 0.01*(Kp_yaw*error_yaw + Ki_yaw*integral_yaw + Kd_yaw*derivative_yaw); //scaled by .01 to bring within -1 to 1 range
 
   //Update roll variables
   integral_roll_prev = integral_roll;
@@ -786,14 +799,23 @@ void controlMixer() {
   /*
    * This code is adapted from quadcopter control code. See above for more information about the quadcopter configuration. m1 is for the number 1 motor.
    * m2 is for the number 2 motor. m3 is for the number 3 motor, or the rear EDF
-   */
-  m1_command_scaled = thro_des - pitch_PID + roll_PID + yaw_PID;
-  m2_command_scaled = thro_des - pitch_PID - roll_PID - yaw_PID;
-  m3_command_scaled = thro_des + pitch_PID - roll_PID + yaw_PID;
+   */   
+
+  //Check for flight condition
+  if (channel_6_pwm > 1500){ // titRaw may have some stupid stuff with the throttle.... check later maybe?
+    hoverControlScalar = floatFaderLinear(hoverControlScalar, 0, 1, FADETIME, 1, LOOPRATE); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+  }
+  else if (channel_6_pwm < 1500) { //go to min specified value in 2.5 seconds
+    hoverControlScalar = floatFaderLinear(hoverControlScalar, 0, 1, FADETIME, 0, LOOPRATE); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+  }
+  
+  m1_command_scaled = thro_des - hoverControlScalar*(pitch_PID - roll_PID); // SUSPECT
+  m2_command_scaled = thro_des - hoverControlScalar*(pitch_PID + roll_PID);
+  m3_command_scaled = hoverControlScalar*(thro_des + pitch_PID);
   m4_command_scaled = 0;
   m5_command_scaled = 0;
   m6_command_scaled = 0;
-
+  
   //0.5 is centered servo, 0 is zero throttle if connecting to ESC for conventional PWM, 1 is max throttle
   s1_command_scaled = 0;
   s2_command_scaled = 0;
@@ -815,15 +837,15 @@ void controlMixer() {
   }
   */
 
-  //Check for flight condition
-  if (channel_6_pwm > 1500){ // titRaw may have some stupid stuff with the throttle.... check later maybe?
-    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, 2, 1, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
-    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, 2, 0, 2000);
-  }
-  if (channel_6_pwm < 1500) { //go to min specified value in 2.5 seconds
-    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, 2, 0, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
-    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, 2, 1, 2000);  
-  }
+//  //Check for flight condition
+//  if (channel_6_pwm > 1500){ // titRaw may have some stupid stuff with the throttle.... check later maybe?
+//    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, 2, 1, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+//    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, 2, 0, 2000);
+//  }
+//  else if (channel_6_pwm < 1500) { //go to min specified value in 2.5 seconds
+//    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, 2, 0, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+//    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, 2, 1, 2000);  
+//  }
 }
 
 void controlTilt() {
@@ -834,14 +856,16 @@ void controlTilt() {
    */
     
   if (channel_6_pwm > 1500) {
-    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, FADETIME, 1, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
-    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, FADETIME, 0, 2000);
+    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, FADETIME, 1, LOOPRATE); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, FADETIME, 0, LOOPRATE);
   }
   else if (channel_6_pwm < 1500) {
-    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, FADETIME, 0, 2000); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
-    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, FADETIME, 1, 2000); 
+    rightTiltSetting_PWM = floatFaderLinear(rightTiltSetting_PWM, 1020, 2000, FADETIME, 0, LOOPRATE); //parameter, minimum value, maximum value, fadeTime (seconds), state (0 min or 1 max), loop frequency
+    leftTiltSetting_PWM = floatFaderLinear(leftTiltSetting_PWM, 1020, 2000, FADETIME, 1, LOOPRATE); 
   }
-  
+
+  rightTiltServo.writeMicroseconds(rightTiltSetting_PWM);
+  leftTiltServo.writeMicroseconds(leftTiltSetting_PWM);
 }
 
 void scaleCommands() {
@@ -870,8 +894,8 @@ void scaleCommands() {
 //  m6_command_PWM = constrain(m6_command_PWM, 125, 250);
 
   //Scaled to 0-180 for servo library
-  s1_command_PWM = s1_command_scaled*PWM_min + PWM_min;
-  s2_command_PWM = s2_command_scaled*PWM_min + PWM_min;
+//  s1_command_PWM = s1_command_scaled*PWM_min + PWM_min;
+//  s2_command_PWM = s2_command_scaled*PWM_min + PWM_min;
 //  s3_command_PWM = s3_command_scaled*180;
 //  s4_command_PWM = s4_command_scaled*180;
 //  s5_command_PWM = s5_command_scaled*180;
@@ -879,8 +903,8 @@ void scaleCommands() {
 //  s7_command_PWM = s7_command_scaled*180;
 
   //Constrain commands to servos within servo library bounds
-  s1_command_PWM = constrain(s1_command_PWM, PWM_min, PWM_max);
-  s2_command_PWM = constrain(s2_command_PWM, PWM_min, PWM_max);
+//  s1_command_PWM = constrain(s1_command_PWM, PWM_min, PWM_max);
+//  s2_command_PWM = constrain(s2_command_PWM, PWM_min, PWM_max);
 //  s3_command_PWM = constrain(s3_command_PWM, 0, 180);
 //  s4_command_PWM = constrain(s4_command_PWM, 0, 180);
 //  s5_command_PWM = constrain(s5_command_PWM, 0, 180);
@@ -915,6 +939,7 @@ void getCommands() {
   channel_2_pwm_prev = channel_2_pwm;
   channel_3_pwm_prev = channel_3_pwm;
   channel_4_pwm_prev = channel_4_pwm;
+  //gravy
 }
 
 void getCommandsButBetter() {
@@ -945,12 +970,12 @@ void getCommandsButBetter() {
   channel_4_pwm_prev = channel_4_pwm;
   */
   
-  throttleRaw = pulseIn(ch1Pin, HIGH);
-  aileronRaw = pulseIn(ch2Pin, HIGH);
-  elevatorRaw = pulseIn(ch3Pin, HIGH);
-  rudderRaw = pulseIn(ch4Pin, HIGH);
-  tiltRaw = pulseIn(ch5Pin, HIGH);
-  tiltRaw2 = pulseIn(ch6Pin, HIGH);
+  throttleRaw = pulseIn(ch1Pin, HIGH, 500);
+  aileronRaw = pulseIn(ch2Pin, HIGH, 500);
+  elevatorRaw = pulseIn(ch3Pin, HIGH, 500);
+  rudderRaw = pulseIn(ch4Pin, HIGH, 500);
+  tiltRaw = pulseIn(ch5Pin, HIGH, 500);
+  tiltRaw2 = pulseIn(ch6Pin, HIGH, 500);
 
   // Get radio PWN inputs from TX/RX
   channel_1_pwm = throttleRaw;
@@ -1071,11 +1096,12 @@ void commandMotors() {
   }
 }
 
-void commandMotorsBetterButMaybeSlower() {
+void commandMotorsBetterButMaybeSlowerJustKiddingItsNotReallySlow() {
   //DESCRIPTION: Send PWM to motors
   /*
    * Mmmm... motors go brrrr
    */
+   
   leftMotor.writeMicroseconds(m1_command_PWM);
   rightMotor.writeMicroseconds(m2_command_PWM);
   rearMotor.writeMicroseconds(m3_command_PWM);
@@ -1303,13 +1329,13 @@ void printMotorCommands() {
     Serial.print(F(" m2_command: "));
     Serial.print(m2_command_PWM);
     Serial.print(F(" m3_command: "));
-    Serial.print(m3_command_PWM);
-    Serial.print(F(" m4_command: "));
-    Serial.print(m4_command_PWM);
-    Serial.print(F(" m5_command: "));
-    Serial.print(m5_command_PWM);
-    Serial.print(F(" m6_command: "));
-    Serial.println(m6_command_PWM);
+    Serial.println(m3_command_PWM);
+//    Serial.print(F(" m4_command: "));
+//    Serial.print(m4_command_PWM);
+//    Serial.print(F(" m5_command: "));
+//    Serial.print(m5_command_PWM);
+//    Serial.print(F(" m6_command: "));
+//    Serial.println(m6_command_PWM);
   }
 }
 

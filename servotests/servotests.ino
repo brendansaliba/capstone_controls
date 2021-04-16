@@ -6,20 +6,20 @@
 Servo escRight, escLeft, tiltRight, tiltLeft, escRear, aileronServo, elevatorServo, throttleServo, rudderServo;
 
 // LMAO FUCK THIS SHIT
-float dt, tiltRaw2;
+float dt;
 float HERTZ = 2000;
 unsigned long current_time, prev_time;
 
 // Define the servo pin:
 #define escRightPin 22
 #define escLeftPin 24
+#define escRearPin 26
 #define tiltRightPin 30
 #define tiltLeftPin 34
 #define aileronPin 52
-#define elevatorPin 46
-#define throttlePin 49
-#define rudderPin 37 //50
-#define escRearPin 26
+#define elevatorPin 48
+#define throttlePin 44
+#define rudderPin 38 //50
 #define tiltPin 42
 
 float THIINGY = 2;
@@ -28,7 +28,8 @@ float aileronRaw; // channel 1
 float elevatorRaw; // channel 2
 float throttleRaw; // channel 3
 float rudderRaw; // channel 4
-float tiltRaw; // channel 5 (SG Switch 3pos)
+float tiltRaw2; // channel 5 (SG Switch 3pos)
+float throttleFS = 1000;
 
 // Create a variable to store the servo position:
 float rightTiltSetting_PWM, leftTiltSetting_PWM;
@@ -37,11 +38,11 @@ void setup() {
   // Attach the Servo variable to a pin:
 
   Serial.begin(500000);
-//  escRight.attach(escRightPin);
-//  escLeft.attach(escLeftPin);
+  escRight.attach(escRightPin);
+  escLeft.attach(escLeftPin);
   tiltRight.attach(tiltRightPin);
   tiltLeft.attach(tiltLeftPin);
-//  escRear.attach(escRearPin);
+  escRear.attach(escRearPin);
 //  aileronServo.attach(aileronPin);
 //  throttleServo.attach(throttlePin);
 //  rudderServo.attach(rudderPin);
@@ -51,7 +52,7 @@ void setup() {
   leftTiltSetting_PWM = 2000;
   setupPins();
 
-  tiltRaw2 = 1000;
+  tiltRaw2 = 2000;
 
 //  aileronServo.writeMicroseconds(1500); // rudder (min 1000 (arm forward), max 1800 (arm aft))
 //  rudderServo.writeMicroseconds(1500); // elevator (min 1250 (arm forward), max 1750 (arm aft))
@@ -59,6 +60,10 @@ void setup() {
 ////  throttleServo.writeMicroseconds(1000); // left aileron (min 1100 (arm aft), max 1800 (arm forward))
   tiltRight.writeMicroseconds(rightTiltSetting_PWM); // right tilt (min 1020 (horizontal), max 2000 (vertical))
   tiltLeft.writeMicroseconds(leftTiltSetting_PWM);
+
+  escRight.writeMicroseconds(throttleFS);
+  escLeft.writeMicroseconds(throttleFS);
+  escRear.writeMicroseconds(throttleFS);
 
   delay(1000);
 }
@@ -70,7 +75,7 @@ void loop() {
   dt = (current_time - prev_time)/1000000.0;
 
   //Check Tilt Condition
-  tiltRaw2 = pulseIn(tiltPin, HIGH);
+  tiltRaw2 = pulseIn(tiltPin, HIGH, 500);
 
   //Check for flight condition
   if (tiltRaw2 > 1500){ // titRaw may have some stupid stuff with the throttle.... check later maybe?
@@ -90,21 +95,23 @@ void loop() {
 //
 //
   aileronRaw = pulseIn(aileronPin, HIGH);
-  elevatorRaw = pulseIn(elevatorPin, HIGH);
-  rudderRaw = pulseIn(rudderPin, HIGH);
-  throttleRaw = pulseIn(throttlePin, HIGH);
-  tiltRaw = pulseIn(tiltPin, HIGH);
-
+//  elevatorRaw = pulseIn(elevatorPin, HIGH);
+//  rudderRaw = pulseIn(rudderPin, HIGH);
+  throttleRaw = pulseIn(throttlePin, HIGH, 500);
+//  escRight.writeMicroseconds(throttleRaw);
+//  escLeft.writeMicroseconds(throttleRaw);
+//  escRear.writeMicroseconds(throttleRaw);
+  
   Serial.print("aileron: ");
   Serial.print(aileronRaw);
-  Serial.print(" elevator: ");
-  Serial.print(elevatorRaw);
-  Serial.print(" rudder: ");
-  Serial.print(rudderRaw);
-  Serial.print(" throttle: ");
-  Serial.print(throttleRaw);
+//  Serial.print(" elevator: ");
+//  Serial.print(elevatorRaw);
+//  Serial.print(" rudder: ");
+//  Serial.print(rudderRaw);
+//  Serial.print(" throttle: ");
+//  Serial.println(throttleRaw);
   Serial.print(" TILT: ");
-  Serial.println(tiltRaw);
+  Serial.println(tiltRaw2);
 //  // maintain loop rate at 2000 hz
   loopRate(HERTZ);
   
